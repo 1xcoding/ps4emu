@@ -19,6 +19,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Два события (push тега и ручной запуск) могут прийти одновременно —
+# выстраиваем их в очередь, иначе прогоны дерутся за вложения одного релиза.
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   # Общая проверка: тесты гоняем один раз на Linux.
   test:
@@ -144,10 +150,18 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          gh release upload "$TAG" \
-            "dist/ps4emu-${TAG}-${{ matrix.suffix }}.tar.gz" \
-            "dist/ps4emu-${TAG}-${{ matrix.suffix }}.zip" \
-            --clobber
+          upload() {
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$TAG" "$@" --clobber; then
+                return 0
+              fi
+              echo "загрузка не удалась (попытка $attempt), повтор через 10 с"
+              sleep 10
+            done
+            return 1
+          }
+          upload "dist/ps4emu-${TAG}-${{ matrix.suffix }}.tar.gz" \
+                 "dist/ps4emu-${TAG}-${{ matrix.suffix }}.zip"
 
   sources:
     name: Исходники и README
@@ -183,8 +197,16 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          gh release upload "$TAG" \
-            "ps4emu-${TAG}-src.tar.gz" \
-            "ps4emu-${TAG}-src.zip" \
-            README.md \
-            --clobber
+          upload() {
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$TAG" "$@" --clobber; then
+                return 0
+              fi
+              echo "загрузка не удалась (попытка $attempt), повтор через 10 с"
+              sleep 10
+            done
+            return 1
+          }
+          upload "ps4emu-${TAG}-src.tar.gz" \
+                 "ps4emu-${TAG}-src.zip" \
+                 README.md
