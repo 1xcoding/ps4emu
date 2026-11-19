@@ -1,0 +1,5 @@
+/target
+/out
+*.snap
+*.bmp
+*.ppm
