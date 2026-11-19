@@ -88,36 +88,53 @@ jobs:
 
       - name: Упаковать
         shell: bash
-        # Git Bash на windows-latest: tar/zip доступны из коробки.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+          SUFFIX: ${{ matrix.suffix }}
+          BIN: ${{ matrix.bin }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
-          DIR="ps4emu-${TAG}-${{ matrix.suffix }}"
+          DIR="ps4emu-${TAG}-${SUFFIX}"
+          rm -rf dist
           mkdir -p "dist/$DIR/docs" "dist/$DIR/guests"
-          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/$DIR/"
+          cp "target/${TARGET}/release/${BIN}" "dist/$DIR/"
           cp README.md Cargo.toml Cargo.lock "dist/$DIR/"
           cp docs/screenshot.png "dist/$DIR/docs/" 2>/dev/null || true
           cp tests/guests/*.S "dist/$DIR/guests/"
-          # Простая инструкция по запуску для конечного пользователя.
-          cat > "dist/$DIR/ЗАПУСК.txt" <<EOF
-          ps4emu ${TAG} (${{ matrix.suffix }})
-
-          Бинарь: ${{ matrix.bin }}
-            Linux:  ./${matrix.bin} --help
-            Windows: ${matrix.bin} --help   (из проводника или cmd)
-
-          Быстрая проверка:  ${matrix.bin} self-test
-          Запуск гостя:      ${matrix.bin} run <файл.elf> --trace
-          Снимок кадра:      ${matrix.bin} screenshot <elf> shot.bmp
-
-          Сборка гостевых примеров (нужен gcc):
-            gcc -static -nostdlib -o hello.elf guests/hello.S
-            gcc -shared -nostdlib -fPIC -o video.so guests/video.S
-
-          Подробности и ограничения — в README.md.
-          EOF
+          # Краткая инструкция для конечного пользователя.
+          {
+            echo "ps4emu ${TAG} (${SUFFIX})"
+            echo
+            echo "Исполняемый файл: ${BIN}"
+            echo "  Windows: ps4emu.exe --help   (cmd/PowerShell или двойной клик)"
+            echo "  Linux:   ./ps4emu --help"
+            echo
+            echo "Быстрая проверка:  ${BIN} self-test"
+            echo "Запуск гостя:      ${BIN} run <файл.elf> --trace"
+            echo "Снимок кадра:      ${BIN} screenshot <elf> shot.bmp"
+            echo "Снимки состояния:  ${BIN} snapshot save <elf> state.snap"
+            echo
+            echo "Примеры гостевых программ — в каталоге guests/."
+            echo "Сборка примеров (нужен gcc):"
+            echo "  gcc -static -nostdlib -o hello.elf guests/hello.S"
+            echo "  gcc -shared -nostdlib -fPIC -o video.so guests/video.S"
+            echo
+            echo "Подробности и ограничения — в README.md."
+          } > "dist/$DIR/ЗАПУСК.txt"
           tar -czf "dist/${DIR}.tar.gz" -C dist "$DIR"
-          (cd dist && zip -qr "${DIR}.zip" "$DIR")
+          # zip собираем через стандартный python (есть и на Linux, и на Windows),
+          # чтобы не зависеть от утилиты zip.
+          python - "$DIR" <<'PYEOF'
+          import os, sys, zipfile
+          name = sys.argv[1]
+          root = os.path.join("dist", name)
+          with zipfile.ZipFile(os.path.join("dist", name + ".zip"), "w", zipfile.ZIP_DEFLATED) as z:
+              for base, _dirs, files in os.walk(root):
+                  for f in files:
+                      full = os.path.join(base, f)
+                      z.write(full, os.path.relpath(full, "dist"))
+          PYEOF
           ls -lh dist
 
       - name: Приложить к релизу
