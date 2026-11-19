@@ -1,7 +1,7 @@
 name: Release
 
-# Сборка релизных артефактов и прикрепление их к GitHub Release.
-# Запускается вручную (workflow_dispatch с указанием тега) или по push тега v*.
+# Сборка релизных артефактов под Linux и Windows и прикрепление их к GitHub Release.
+# Запуск: вручную (workflow_dispatch с указанием тега) или по push тега v*.
 on:
   push:
     tags:
@@ -9,16 +9,20 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Тег релиза, к которому приложить артефакты (например, v0.1.0)"
+        description: "Тег релиза (например, v0.2.0)"
         required: true
         type: string
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build-linux-x86_64:
-    name: Сборка ps4emu (linux-x86_64)
+  # Общая проверка: тесты гоняем один раз на Linux.
+  test:
+    name: Тесты (linux-x86_64)
     runs-on: ubuntu-latest
     steps:
       - name: Определить тег
@@ -34,30 +38,127 @@ jobs:
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
-      - name: Установить Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Тесты
-        run: cargo test --release --offline
+      - run: cargo test --release --offline
+
+  build:
+    name: Сборка (${{ matrix.os }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: x86_64-linux
+            bin: ps4emu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: x86_64-windows
+            bin: ps4emu.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Определить тег
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Сборка
-        run: cargo build --release --offline
+        run: cargo build --release --offline --target ${{ matrix.target }}
+
+      - name: Проверка бинаря
+        shell: bash
+        run: |
+          set -euo pipefail
+          "./target/${{ matrix.target }}/release/${{ matrix.bin }}" self-test
 
       - name: Упаковать
+        shell: bash
+        # Git Bash на windows-latest: tar/zip доступны из коробки.
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          DIR="ps4emu-${TAG}-x86_64-linux"
+          DIR="ps4emu-${TAG}-${{ matrix.suffix }}"
           mkdir -p "dist/$DIR/docs" "dist/$DIR/guests"
-          strip target/release/ps4emu || true
-          cp target/release/ps4emu "dist/$DIR/"
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/$DIR/"
           cp README.md Cargo.toml Cargo.lock "dist/$DIR/"
           cp docs/screenshot.png "dist/$DIR/docs/" 2>/dev/null || true
           cp tests/guests/*.S "dist/$DIR/guests/"
+          # Простая инструкция по запуску для конечного пользователя.
+          cat > "dist/$DIR/ЗАПУСК.txt" <<EOF
+          ps4emu ${TAG} (${{ matrix.suffix }})
+
+          Бинарь: ${{ matrix.bin }}
+            Linux:  ./${matrix.bin} --help
+            Windows: ${matrix.bin} --help   (из проводника или cmd)
+
+          Быстрая проверка:  ${matrix.bin} self-test
+          Запуск гостя:      ${matrix.bin} run <файл.elf> --trace
+          Снимок кадра:      ${matrix.bin} screenshot <elf> shot.bmp
+
+          Сборка гостевых примеров (нужен gcc):
+            gcc -static -nostdlib -o hello.elf guests/hello.S
+            gcc -shared -nostdlib -fPIC -o video.so guests/video.S
+
+          Подробности и ограничения — в README.md.
+          EOF
           tar -czf "dist/${DIR}.tar.gz" -C dist "$DIR"
-          git archive --format=tar.gz --prefix="ps4emu-${TAG}-src/" \
-            -o "dist/ps4emu-${TAG}-src.tar.gz" "$TAG"
+          (cd dist && zip -qr "${DIR}.zip" "$DIR")
           ls -lh dist
+
+      - name: Приложить к релизу
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          gh release upload "$TAG" \
+            "dist/ps4emu-${TAG}-${{ matrix.suffix }}.tar.gz" \
+            "dist/ps4emu-${TAG}-${{ matrix.suffix }}.zip" \
+            --clobber
+
+  sources:
+    name: Исходники и README
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Определить тег
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Архив исходников
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          git archive --format=tar.gz --prefix="ps4emu-${TAG}-src/" \
+            -o "ps4emu-${TAG}-src.tar.gz" "$TAG"
+          git archive --format=zip --prefix="ps4emu-${TAG}-src/" \
+            -o "ps4emu-${TAG}-src.zip" "$TAG"
+          ls -lh ps4emu-${TAG}-src.*
 
       - name: Приложить к релизу
         env:
@@ -66,7 +167,7 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           gh release upload "$TAG" \
-            "dist/ps4emu-${TAG}-x86_64-linux.tar.gz" \
-            "dist/ps4emu-${TAG}-src.tar.gz" \
+            "ps4emu-${TAG}-src.tar.gz" \
+            "ps4emu-${TAG}-src.zip" \
             README.md \
             --clobber

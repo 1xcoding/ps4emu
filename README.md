@@ -227,6 +227,43 @@ ps4emu run    /tmp/hello.elf
 ps4emu screenshot /tmp/video.so /tmp/frame.bmp
 ```
 
+### Готовые сборки
+
+В разделе [Releases](../../releases) лежат архивы под обе платформы:
+
+| Платформа | Архив | Бинарь |
+| --- | --- | --- |
+| Windows x86-64 | `ps4emu-vX.Y.Z-x86_64-windows.zip` (и `.tar.gz`) | `ps4emu.exe` |
+| Linux x86-64 | `ps4emu-vX.Y.Z-x86_64-linux.tar.gz` (и `.zip`) | `ps4emu` |
+| Исходники | `ps4emu-vX.Y.Z-src.tar.gz` / `.zip` | — |
+
+Внутри архива — бинарь, README, `ЗАПУСК.txt` с краткой инструкцией и каталог
+`guests/` с примерами гостевых программ. Windows-сборка — обычное консольное
+приложение (MSVC target), запускается из `cmd`/PowerShell:
+
+```
+ps4emu.exe --help
+ps4emu.exe self-test
+ps4emu.exe run hello.elf --trace
+ps4emu.exe screenshot video.so shot.bmp
+```
+
+Сборка под Windows из исходников:
+
+```
+cargo build --release --target x86_64-pc-windows-msvc
+```
+
+или кросс-компиляцией с Linux (нужен `mingw-w64`):
+
+```
+rustup target add x86_64-pc-windows-gnu
+cargo build --release --target x86_64-pc-windows-gnu
+```
+
+Внешних крейтов нет, так что специальных зависимостей не требуется;
+для Windows-тестов нужен только установленный Rust.
+
 `tests/guests/video.S` рисует градиент 64×64 и представляет кадр через
 `sceVideoOutSubmitFlip`; `ps4emu screenshot` снимает результат:
 
