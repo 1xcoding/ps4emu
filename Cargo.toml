@@ -1,6 +1,6 @@
 [package]
 name = "ps4emu"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Экспериментальный эмулятор PlayStation 4 (Orbis OS / x86-64) на Rust"
 license = "MIT"
@@ -13,6 +13,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "ps4emu"
 path = "src/main.rs"
+
+# Windows-сборка — обычное консольное приложение: окно консоли нужно,
+# чтобы гость мог писать в stdout/stderr (атрибут windows_subsystem не задан).
 
 [profile.release]
 opt-level = 3
