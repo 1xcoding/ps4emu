@@ -3,3 +3,4 @@
 *.snap
 *.bmp
 *.ppm
+/dist

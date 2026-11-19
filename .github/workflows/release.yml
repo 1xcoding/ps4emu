@@ -1,0 +1,72 @@
+name: Release
+
+# Сборка релизных артефактов и прикрепление их к GitHub Release.
+# Запускается вручную (workflow_dispatch с указанием тега) или по push тега v*.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, к которому приложить артефакты (например, v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    name: Сборка ps4emu (linux-x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Определить тег
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Установить Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Тесты
+        run: cargo test --release --offline
+
+      - name: Сборка
+        run: cargo build --release --offline
+
+      - name: Упаковать
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          DIR="ps4emu-${TAG}-x86_64-linux"
+          mkdir -p "dist/$DIR/docs" "dist/$DIR/guests"
+          strip target/release/ps4emu || true
+          cp target/release/ps4emu "dist/$DIR/"
+          cp README.md Cargo.toml Cargo.lock "dist/$DIR/"
+          cp docs/screenshot.png "dist/$DIR/docs/" 2>/dev/null || true
+          cp tests/guests/*.S "dist/$DIR/guests/"
+          tar -czf "dist/${DIR}.tar.gz" -C dist "$DIR"
+          git archive --format=tar.gz --prefix="ps4emu-${TAG}-src/" \
+            -o "dist/ps4emu-${TAG}-src.tar.gz" "$TAG"
+          ls -lh dist
+
+      - name: Приложить к релизу
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          gh release upload "$TAG" \
+            "dist/ps4emu-${TAG}-x86_64-linux.tar.gz" \
+            "dist/ps4emu-${TAG}-src.tar.gz" \
+            README.md \
+            --clobber
