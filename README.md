@@ -228,7 +228,9 @@ ps4emu screenshot /tmp/video.so /tmp/frame.bmp
 ```
 
 `tests/guests/video.S` рисует градиент 64×64 и представляет кадр через
-`sceVideoOutSubmitFlip`; `ps4emu screenshot` снимает результат.
+`sceVideoOutSubmitFlip`; `ps4emu screenshot` снимает результат:
+
+![кадр, снятый из гостевой программы](docs/screenshot.png)
 
 ## Архитектура
 
